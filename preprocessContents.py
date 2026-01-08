@@ -229,42 +229,66 @@ def splitIn2Convos(messages, time_decay=30):
             prev_embedings.append(embeding)
     return convos
   
-def createChunks(convos, wSize, wStep):
-    traningdataset=[]
+
+
+def createChunks(convos, window_size = 20):
+    """
+    window_size of 20 ~ 700 tokens
+    Build training examples from chat threads.
+    Each example contains up to window_size messages
+    Number of training examples for each conversation thread equal to the number of bot replies in it.
+    """
+    training_dataset = []
+
     for thread in convos:
-      sender=[x["from"] for x in thread]
-      #
-      
-      if not("bot" in sender and "user" in sender):  #skip conversations with only one user 
+        senders = [msg.get("from") for msg in thread]
+
+        # Skip threads that don't contain BOTH user and bot messages.
+        participants = set(senders)
+        if "bot" not in participants or "user" not in participants:
             continue
-      elif sender[::-1].index("bot")<sender.index("from"): #index of the last message from bot is less than the first from user. aka the bot never replies to the user. 
+
+        first_user_idx = senders.index("user")
+
+        # Last bot index in the ORIGINAL list (not reversed).
+        last_bot_idx = len(senders) - 1 - senders[::-1].index("bot")
+
+        # skip threads where the bot never replies after the first user message.
+        if last_bot_idx <= first_user_idx:
             continue
-      
-      chunk=[]
+        
+        # Make training window that ends on each bot reply and advances from one bot message to the next.
+        # Early replies: stationary window grows from start of thread.
+        # Later replies: window becomes fixed-length and slides when it's size equals window_size.
+       
+        for i, who in enumerate(senders):
+            # Only store chunks ending at a bot messages after the first user message.
+            if who != "bot" or i <= first_user_idx:
+                continue
 
-      botMsgIdx=[i for i, x in enumerate(sender) if x=="bot"] #create list index of all the bots messages in the convo.
+            start = max(0, i + 1 - window_size) # grows from 0 until it hits window_size, then slides
+            training_dataset.append({"conversation": thread[start : i + 1]})
 
-      for i in botMsgIdx:
-        if i>0 and i <= wSize:
-          chunk.append({"conversation":thread[:i+1]})
-        elif i > wSize:
-          chunk.append({"conversation":thread[i + 1 - wSize : i + 1]})
-      
-      if chunk:
-        traningdataset.extend(chunk)
-
-    return traningdataset
+    return training_dataset
 
 def write_jsonl_atomic(lines: Iterable[Union[dict, str]], out_path: Path):
     """Write JSONL atomically; accepts dicts or pre-serialized strings."""
+    # Create a temporary path in the same directory so the final replace is atomic
     tmp = out_path.with_suffix(out_path.suffix + ".tmp")
+
+    # Write all lines to the temporary file
     with tmp.open("w", encoding="utf-8") as f:
         for line in lines:
+            # If the line is already serialized, write it directly
+            # (normalising to exactly one trailing newline)
             if isinstance(line, str):
                 f.write(line.rstrip("\n") + "\n")
             else:
+                # Otherwise, serialize the dict to JSON
+                # ensure_ascii=False preserves Unicode characters
                 f.write(json.dumps(line, ensure_ascii=False) + "\n")
-    tmp.replace(out_path)
+    # override the target file with the completed temp file
+    os.replace(tmp, out_path)
 
 def process(file_path):
 
@@ -282,7 +306,7 @@ def process(file_path):
 
     convos = splitIn2Convos(msg_data)
 
-    traningdata = createChunks(convos)
+    traningdata = createChunks(convos, window_size=20)
     
     write_jsonl_atomic(traningdata, out)
 
