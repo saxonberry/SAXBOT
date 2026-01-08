@@ -286,8 +286,9 @@ def write_jsonl_atomic(lines: Iterable[Union[dict, str]], out_path: Path):
             else:
                 # Otherwise, serialize the dict to JSON
                 # ensure_ascii=False preserves Unicode characters
-                f.write(json.dumps(line, ensure_ascii=False) + "\n")
-    # override the target file with the completed temp file
+                f.write(json.dumps(line, ensure_ascii=False) + "\n") #convert line from dict to JSON-formatted string and write to tmp file
+    
+    # override the target JSONL file with the completed tmp file
     os.replace(tmp, out_path)
 
 def process(file_path):
@@ -300,15 +301,15 @@ def process(file_path):
     with file_path.open("r", encoding="utf-8") as f:
         data = json.load(f)
     
-    msg_data = formatAndFilter(data)
+    msg_data = formatAndFilter(data) #preprocess fb messenger json data. reformat content for traning or later preprocessing steps and and remove irrelevent data not needed for those. 
 
-    for msg in msg_data: msg["value2"] = simplify4Clustering(msg["value"])
+    for msg in msg_data: msg["value2"] = simplify4Clustering(msg["value"]) #create a simplified version of each reply to use for clustering in later preprocessing steps
 
-    convos = splitIn2Convos(msg_data)
+    convos = splitIn2Convos(msg_data) #group message threads into distinct conversations
 
-    traningdata = createChunks(convos, window_size=20)
+    traningdata = createChunks(convos, window_size=20) #within each conversation thread create training samples. 
     
-    write_jsonl_atomic(traningdata, out)
+    write_jsonl_atomic(traningdata, out) #save training samples as jsonl file. 
 
     
 
