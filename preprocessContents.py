@@ -7,7 +7,9 @@ import sys
 from nltk.corpus import stopwords
 import math
 from sentence_transformers import SentenceTransformer, util
-
+from pathlib import Path
+from typing import Iterable, Union
+import time
 def getFolderPath():
     #opens a file explorer window and prompts the user to select location of messages
     app = QApplication(sys.argv) 
@@ -294,7 +296,7 @@ def write_jsonl_atomic(lines: Iterable[Union[dict, str]], out_path: Path):
 def process(file_path):
 
     out = create_output_path(file_path)
-    if out.exists:
+    if out.exists():
         print("exists: ", out)
         return
     
@@ -315,15 +317,21 @@ def process(file_path):
 
 if __name__=="__main__":
     
-    path = getFolderPath()
+    path = Path(getFolderPath())
 
     removeConvos(path)
 
     jsonList = find_message_files(path)
-
+    
     for json_path in jsonList:
-        try:
-            process(json_path)
-        except Exception as e:
-            print(f"ERROR processing {json_path}: {e}")
+        UserName = json_path.parent.name
+        filename= json_path.stem
+        #try:
+        start_time = time.perf_counter()
+        process(json_path)
+        timeElapsed = time.perf_counter() - start_time
+        print(f'Completed {filename} of {UserName}')
+        print(f"time to process {timeElapsed}")
+        #except Exception as e:
+            #print(f"ERROR processing {json_path}: {e}")
 
