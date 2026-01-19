@@ -19,12 +19,15 @@ def getFolderPath():
     return path
 
 def removeConvos(path, MinSize=16):
+    #remove convos is a very dangerous function because 
+    # if the path directory is wrong and there are no json files, it will remove everything in it.
     """remove conversation files and folders that are group conversations or just aren't long enough"""
     #path contains to user messages, folders with users names containing their message data.
     msg_1_regex=re.compile("message_1.json$")
-    
+    userDir=os.listdir(path)
+
     #loop through the subfolders in path 
-    for dirs in os.listdir(path): 
+    for dirs in userDir: 
         sub_path=os.path.join(path,dirs)
         if not os.path.isdir(sub_path):
             continue
@@ -89,10 +92,10 @@ def create_output_path(input: Path):
   n=int(MSG_RE.match(input.name).group(1)) #get the number in the file name 
   return input.with_name(f"message_{n}_flat.jsonl") 
 
-notUserMsg=[" missed your call\.$", " missed a call from ", "the video call ended\.$", "^You called ", " called you\.$",
-            " removed a message\.$", " unsent a message\.$", 
-            "Reacted (\\u\w{4})+ to your message ", " set the nickname for ([A-Z]\w+\s?){1,2} to \'[\D\w]+\'\.$",
-            " sent a location\.$"," sent a photo\.$", " sent an attachment\.$", " sent a GIF\.$"]
+notUserMsg=[r" missed your call\.$", r" missed a call from ", r"the video call ended\.$", r"^You called ", r" called you\.$",
+            r" removed a message\.$", r" unsent a message\.$", 
+            r"Reacted (\\u\w{4})+ to your message ", r" set the nickname for ([A-Z]\w+\s?){1,2} to \'[\D\w]+\'\.$",
+            r" sent a location\.$",r" sent a photo\.$", r" sent an attachment\.$", r" sent a GIF\.$"]
 
 def formatAndFilter(data):
     """ function used to extract messages from raw .json data and reformat structure so it is more compatible for training on olama.
@@ -134,7 +137,7 @@ def formatAndFilter(data):
     """
     messages=data["messages"]
     #NOTE after reversal the last message from 2nd .json file directly preceeds the first message from the 1st .json file
-    messages=messages.reverse() #reverse so oldest message is first element and most recent message is last
+    messages.reverse() #reverse so oldest message is first element and most recent message is last
     ReformatData = []
     #initilise the state of the previous message. {who sent it, the message itself (sequential messages by the same person are combined into the same entry), time stamp of the latest message by user, length of time between the first message in the entry and the last}
     priorMsg = {"from": "", "value": "", "time": 0, "time2": 0}
@@ -205,30 +208,33 @@ def splitIn2Convos(messages, time_decay=30):
         embeding = model.encode(msg["value"], convert_to_tensor=True, normalize_embeddings=True) 
         
         #for the first iteration initilise the first entry to the first convo
-        if convos is []:
+        if convos == []:
             convos.append([msg4nlp])
             prev_embedings=[embeding]
+            currentConvo=[msg]
             continue
         
         #calculates the max similarity of current message with previous messages in the active convo. scales that value by the length of time elapsed between those two messages.  
         max_similarity=-1 
-        for prev_msg, prev_embed in zip(convos[-1], prev_embedings):
+        for prev_msg, prev_embed in zip(currentConvo, prev_embedings):
             #prev_msg = convos[-1][-1]
             simB4 = float(util.cos_sim(embeding, prev_embed))
 
             if simB4 > max_similarity:
                 max_similarity = simB4
                 dt = msg["time"] - prev_msg["time"] + prev_msg["time2"]
-      
+
         similarity_tScaled=max_similarity*math.exp(-1*dt/time_decay*60*1000)
         #set the time decay such that max similarity will be less than 0.6 after 15 hours.
 
         if dt > 5*60*1000 and similarity_tScaled < 0.6: #if the reply is after 5 mins and the similarity score is low enough then start new convo.
             convos.append([msg4nlp])
-            prev_embedings=[]
+            prev_embedings=[embeding]
+            currentConvo=[msg]
         else: #otherwise add the latest message to the existing convo
             convos[-1].append(msg4nlp)
             prev_embedings.append(embeding)
+            currentConvo.append(msg)
     return convos
   
 
@@ -318,8 +324,6 @@ def process(file_path):
 if __name__=="__main__":
     
     path = Path(getFolderPath())
-
-    removeConvos(path)
 
     jsonList = find_message_files(path)
     
