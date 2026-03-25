@@ -92,8 +92,6 @@ def create_output_path(input: Path):
   n = int(MSG_RE.match(input.name).group(1)) #get the number in the file name 
   return input.with_name(f"message_{n}_flat.jsonl") 
 
-Replace
-
 notUserMsg=[r" missed your call\.$", r" missed a call from ", r"the video call ended\.$", r"^You called ", r" called you\.$",
             r" removed a message\.$", r" unsent a message\.$", 
             r"Reacted (\\u\w{4})+ to your message ", r" set the nickname for ([A-Z]\w+\s?){1,2} to \'[\D\w]+\'\.$",
@@ -188,8 +186,9 @@ def simplify4Clustering(msg):
     stop_words = set(stopwords.words("english"))
     #TODO apply lemmatization, which simplifies words to their lemma (google it) 
     return " ".join([word for word in msg.split() if word not in stop_words]) #stop words are things like the, and, not, a, but
+    
 
-model = SentenceTransformer("all-mpnet-base-v2") #all-MiniLM-L6-v2
+
 def splitIn2Convos(messages, time_decay=22, min_time_gap = 5):
     
     #TODO look into more effective ways to split up conversations. Look at "text segmentation with timestamps" gpt chat for recources.
@@ -198,7 +197,7 @@ def splitIn2Convos(messages, time_decay=22, min_time_gap = 5):
     """Groups message sequences into distinct conversations.
     time_decay: the decay rate (in hours) of the scaling funtion
     min_time_gap: The minimum amount of time elapsed (in minutes) for the current message to be considered part of a new convo"""
-    
+    model = SentenceTransformer("all-mpnet-base-v2") #all-MiniLM-L6-v2
     #loops through each message and compares to all the previous messages in the conversation. When requirments fail a message is added to a new list for the next conversation. 
     #requirement: if a message includes a key phrase and long enough time between the next message.
 
@@ -241,27 +240,6 @@ def splitIn2Convos(messages, time_decay=22, min_time_gap = 5):
             currentConvo.append(msg)
     return convos
   
-def filterConvos(convos):
-    convos_filtered=[]
-    for thread in convos:
-        senders = [msg.get("from") for msg in thread]
-
-        # Skip threads that don't contain BOTH user and bot messages.
-        participants = set(senders)
-        if "bot" not in participants or "user" not in participants:
-            continue
-
-        first_user_idx = senders.index("user")
-
-        # Last bot index in the ORIGINAL list (not reversed).
-        last_bot_idx = len(senders) - 1 - senders[::-1].index("bot")
-
-        # skip threads where there is no bot reply after the first user message.
-        if last_bot_idx <= first_user_idx:
-            continue
-        convos_filtered.append(thread)
-    return convos_filtered
-
 
 
 def createChunks(convos, window_size = 20):
@@ -276,6 +254,11 @@ def createChunks(convos, window_size = 20):
 
     for thread in convos:
         senders = [msg.get("from") for msg in thread]
+
+        # Skip threads that don't contain BOTH user and bot messages.
+        participants = set(senders)
+        if "bot" not in participants or "user" not in participants:
+            continue
 
         first_user_idx = senders.index("user")
 
