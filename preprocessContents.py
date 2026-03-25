@@ -54,10 +54,9 @@ def removeConvos(path, MinSize=16):
 
 # Compile a regular expression that matches filenames like:
 # "message_1.json", "message_42.json", etc.
-# The (\d+) captures the numeric message index.
-MSG_RE = re.compile(r"^message_(\d+)\.json$")
-
-def find_message_files(root: Path):
+# The (\d+) captures the numeric message index.\
+MSG_RE = re.compile(r"^message_(\d+)\_flat.json$")
+def find_message_files(root: Path, MSG_RE):
     """
     Recursively find all files named message_<n>.json under the given root
     directory and return them sorted by:
@@ -188,6 +187,7 @@ def simplify4Clustering(msg):
     return " ".join([word for word in msg.split() if word not in stop_words]) #stop words are things like the, and, not, a, but
     
 
+model = SentenceTransformer("all-mpnet-base-v2") #all-MiniLM-L6-v2
 
 def splitIn2Convos(messages, time_decay=22, min_time_gap = 5):
     
@@ -197,7 +197,6 @@ def splitIn2Convos(messages, time_decay=22, min_time_gap = 5):
     """Groups message sequences into distinct conversations.
     time_decay: the decay rate (in hours) of the scaling funtion
     min_time_gap: The minimum amount of time elapsed (in minutes) for the current message to be considered part of a new convo"""
-    model = SentenceTransformer("all-mpnet-base-v2") #all-MiniLM-L6-v2
     #loops through each message and compares to all the previous messages in the conversation. When requirments fail a message is added to a new list for the next conversation. 
     #requirement: if a message includes a key phrase and long enough time between the next message.
 
@@ -240,18 +239,8 @@ def splitIn2Convos(messages, time_decay=22, min_time_gap = 5):
             currentConvo.append(msg)
     return convos
   
-
-
-def createChunks(convos, window_size = 20):
-    """
-    window_size of 20 ~ 700 tokens
-
-    Build training examples from chat threads.
-    Each example contains up to window_size messages
-    Number of training examples for each conversation thread equal to the number of bot replies in it.
-    """
-    training_dataset = []
-
+def filterConvos(convos):
+    convos_filtered=[]
     for thread in convos:
         senders = [msg.get("from") for msg in thread]
 
@@ -268,7 +257,25 @@ def createChunks(convos, window_size = 20):
         # skip threads where there is no bot reply after the first user message.
         if last_bot_idx <= first_user_idx:
             continue
-        
+        convos_filtered.append(thread)
+    return convos_filtered
+
+
+
+def createChunks(convos, window_size = 20):
+    """
+    window_size of 20 ~ 700 tokens
+
+    Build training examples from chat threads.
+    Each example contains up to window_size messages
+    Number of training examples for each conversation thread equal to the number of bot replies in it.
+    """
+    training_dataset = []
+
+    for thread in convos:
+        senders = [msg.get("from") for msg in thread]
+        first_user_idx = senders.index("user")
+
         # Make training window that ends on each bot reply and advances from one bot message to the next bot message.
         # Early replies: stationary window grows from start of thread.
         # Later replies: window becomes fixed-length and slides when it's size equals window_size.
@@ -318,18 +325,21 @@ def process(file_path, overide = True):
     for msg in msg_data: msg["value2"] = simplify4Clustering(msg["value"]) #create a simplified version of each reply to use for clustering in later preprocessing steps
 
     convos = splitIn2Convos(msg_data) #group message threads into distinct conversations
-
-    traningdata = createChunks(convos, window_size = 15) #within each conversation thread create training samples. 
     
-    write_jsonl_atomic(traningdata, out) #save training samples as jsonl file. 
+    convos = filterConvos(convos)
+    
+    #traningdata = createChunks(convos, window_size = 15) #within each conversation thread create training samples. 
+    
+    write_jsonl_atomic(convos, out) #save training samples as jsonl file. 
 
     
 
 if __name__=="__main__":
+    MSG_RE = re.compile(r"^message_(\d+)\.json$")
     
     path = Path(getFolderPath())
 
-    jsonList = find_message_files(path)
+    jsonList = find_message_files(path, MSG_RE)
     
     for json_path in jsonList:
         UserName = json_path.parent.name
